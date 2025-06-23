@@ -1,0 +1,740 @@
+== 8. Cross-cutting Concepts
+
+[role="arc42help"]
+****
+This section describes overall, principal regulations and solution ideas that are relevant in multiple parts (= cross-cutting) of your system.
+Such concepts are often related to multiple building blocks. They include many different topics, such as:
+
+* domain models
+* architecture patterns or design patterns
+* rules for using specific technology
+* principal, often technical decisions of overall decisions
+* implementation rules
+****
+
+=== 8.1 Domain Model
+
+**Core Domain Concepts:**
+
+[plantuml, domain-model, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+class Document {
+  +id: String
+  +fileName: String
+  +fileSize: Number
+  +fileHash: String
+  +uploadDate: Date
+  +totalPages: Number
+  +analysisStatus: AnalysisStatus
+}
+
+class Page {
+  +pageNumber: Number
+  +state: PageState
+  +thumbnail: Blob
+  +qrCodes: QRCode[]
+  +blankScore: Number
+  +isVirtual: Boolean
+}
+
+class QRCode {
+  +content: String
+  +position: Rectangle
+  +confidence: Number
+  +detectionMethod: DetectionMethod
+}
+
+class DocumentSplit {
+  +splitId: String
+  +startPage: Number
+  +endPage: Number
+  +outputName: String
+  +qrTrigger: QRCode
+}
+
+class AnalysisState {
+  +documentId: String
+  +timestamp: Date
+  +analysisVersion: String
+  +pageStates: Map<Number, PageState>
+  +virtualSplits: VirtualSplit[]
+  +processingSettings: Settings
+}
+
+enum PageState {
+  NORMAL
+  BLANK
+  QR_SPLIT
+}
+
+enum AnalysisStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ERROR
+}
+
+enum DetectionMethod {
+  AUTOMATIC
+  MANUAL
+}
+
+Document ||--o{ Page : "contains"
+Page ||--o{ QRCode : "may have"
+Document ||--|| AnalysisState : "has"
+AnalysisState ||--o{ DocumentSplit : "defines"
+DocumentSplit ||--|| QRCode : "triggered by"
+
+note right of Page
+  Virtual pages represent
+  manually inserted split points
+end note
+
+note bottom of AnalysisState
+  Persisted in IndexedDB for
+  crash recovery and session restore
+end note
+@enduml
+----
+
+**Business Rules:**
+1. **Split Determination**: Documents split at pages with QR codes (detected or virtual)
+2. **Blank Page Handling**: Pages marked as blank are excluded from output
+3. **Virtual Consistency**: Manual splits treated identically to detected QR codes
+4. **State Persistence**: All user modifications preserved across sessions
+5. **Non-destructive**: Original PDF never modified until final generation
+
+=== 8.2 Error Handling Strategy
+
+**Unified Error Handling Architecture:**
+
+[plantuml, error-handling-concept, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+interface ErrorHandler {
+  +handleError(error: Error, context: Context)
+  +reportWarning(warning: Warning)
+  +logEvent(event: Event)
+}
+
+class CentralErrorHandler {
+  -errorCategories: Map<ErrorType, Handler>
+  -userNotifier: NotificationService
+  -logger: LoggingService
+  +categorizeError(error: Error): ErrorCategory
+  +executeRecovery(error: Error): RecoveryAction
+}
+
+class PDFProcessingError {
+  +type: "PDF_CORRUPT" | "PDF_TOO_LARGE" | "PDF_ENCRYPTED"
+  +originalError: Error
+  +suggestedActions: Action[]
+}
+
+class StorageError {
+  +type: "QUOTA_EXCEEDED" | "INDEXEDDB_UNAVAILABLE"
+  +remainingSpace: Number
+  +cleanupOptions: CleanupOption[]
+}
+
+class ProcessingWarning {
+  +type: "NO_QR_FOUND" | "ALL_BLANK_PAGES" | "LOW_QUALITY"
+  +affectedPages: Number[]
+  +suggestions: String[]
+}
+
+class RecoveryAction {
+  +action: ActionType
+  +parameters: Map<String, Any>
+  +userConfirmationRequired: Boolean
+}
+
+ErrorHandler <|-- CentralErrorHandler
+CentralErrorHandler --> PDFProcessingError
+CentralErrorHandler --> StorageError
+CentralErrorHandler --> ProcessingWarning
+CentralErrorHandler --> RecoveryAction
+
+note right of CentralErrorHandler
+  Error Categories:
+  • CRITICAL: App cannot continue
+  • HIGH: Feature unavailable
+  • MEDIUM: Degraded experience
+  • LOW: Informational
+end note
+@enduml
+----
+
+**Error Categories and Responses:**
+
+[cols="1,2,2,2" options="header"]
+|===
+| Category | Examples | User Impact | Recovery Strategy
+
+| **Critical** 
+| Browser incompatibility, memory overflow
+| Application unusable
+| Clear error message, reload suggestion, browser upgrade
+
+| **High** 
+| PDF corruption, storage quota exceeded
+| Feature blocked
+| Alternative actions, cleanup options, manual intervention
+
+| **Medium** 
+| QR detection failure, network offline
+| Degraded functionality
+| Fallback options, manual alternatives, offline mode
+
+| **Low** 
+| No QR codes found, all pages blank
+| Informational warning
+| Proceed with manual options, user confirmation
+|===
+
+**Error Recovery Patterns:**
+
+```javascript
+// Example error handling implementation
+class ErrorRecoveryService {
+  async handleProcessingError(error, context) {
+    const category = this.categorizeError(error);
+    
+    switch (category) {
+      case 'MEMORY_OVERFLOW':
+        return this.offerChunkedProcessing(context);
+      case 'STORAGE_QUOTA':
+        return this.triggerStorageCleanup(context);
+      case 'PDF_CORRUPT':
+        return this.suggestFileAlternatives(context);
+      default:
+        return this.showGenericError(error);
+    }
+  }
+  
+  async offerChunkedProcessing(context) {
+    const userChoice = await this.showDialog({
+      title: 'Document Too Large',
+      message: 'Process in smaller chunks?',
+      options: ['Yes, process in chunks', 'Cancel', 'Try anyway']
+    });
+    
+    if (userChoice === 'chunks') {
+      return this.enableChunkedMode(context);
+    }
+  }
+}
+```
+
+=== 8.3 Data Persistence Strategy
+
+**Layered Storage Architecture:**
+
+[plantuml, storage-strategy, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+interface StorageLayer {
+  +store(key: String, data: Any): Promise<void>
+  +retrieve(key: String): Promise<Any>
+  +delete(key: String): Promise<void>
+  +cleanup(criteria: CleanupCriteria): Promise<void>
+}
+
+class IndexedDBStorage {
+  -dbName: "PaperPilotDB"
+  -version: Number
+  -stores: ObjectStore[]
+  +initializeDatabase(): Promise<void>
+  +storeDocument(doc: Document): Promise<void>
+  +storeAnalysis(analysis: AnalysisState): Promise<void>
+}
+
+class LocalStorageAdapter {
+  -maxSize: 5MB
+  +storeSettings(settings: UserSettings): void
+  +getSettings(): UserSettings
+}
+
+class MemoryCache {
+  -cache: Map<String, CacheEntry>
+  -maxSize: 100MB
+  +cacheThumbnail(pageId: String, data: Blob): void
+  +getCachedThumbnail(pageId: String): Blob?
+}
+
+class StorageManager {
+  -primaryStorage: IndexedDBStorage
+  -settingsStorage: LocalStorageAdapter
+  -cache: MemoryCache
+  +autoCleanup(): Promise<void>
+  +getStorageUsage(): StorageQuota
+}
+
+StorageLayer <|-- IndexedDBStorage
+StorageLayer <|-- LocalStorageAdapter
+StorageManager --> IndexedDBStorage
+StorageManager --> LocalStorageAdapter
+StorageManager --> MemoryCache
+
+note right of IndexedDBStorage
+  Object Stores:
+  • documents: Original PDF metadata
+  • analysis: Processing results
+  • thumbnails: Page preview images
+  • settings: User preferences
+end note
+
+note bottom of StorageManager
+  Cleanup Strategy:
+  • Auto-cleanup after 30 days
+  • Manual cleanup tools
+  • Storage quota monitoring
+  • Orphaned data detection
+end note
+@enduml
+----
+
+**Data Lifecycle Management:**
+
+1. **Creation**: Documents and analysis data stored in IndexedDB
+2. **Access**: Frequently accessed data cached in memory
+3. **Modification**: All changes immediately persisted
+4. **Cleanup**: Automatic cleanup after configurable period (default: 30 days)
+5. **Migration**: Schema versioning for future data structure changes
+
+**Storage Quotas and Limits:**
+
+[cols="1,2,2,2" options="header"]
+|===
+| Storage Type | Typical Limit | Usage | Cleanup Strategy
+
+| **IndexedDB** 
+| 50% of available disk space
+| Document data, analysis results
+| Age-based cleanup, user-triggered
+
+| **Cache API** 
+| Same as IndexedDB
+| Application assets, service worker
+| Automatic browser management
+
+| **Memory Cache** 
+| 100MB application limit
+| Thumbnails, temporary data
+| LRU eviction, session-based
+
+| **LocalStorage** 
+| 5-10MB
+| User settings, preferences
+| Manual management only
+|===
+
+=== 8.4 Security and Privacy Concepts
+
+**Privacy-by-Design Architecture:**
+
+[plantuml, security-concept, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "Client-side Only Processing" {
+  component "Document Upload" as upload {
+    note right : No server transmission
+  }
+  
+  component "PDF Processing" as processing {
+    note right : Browser memory only
+  }
+  
+  component "QR Detection" as qr {
+    note right : Local analysis only
+  }
+  
+  component "Output Generation" as output {
+    note right : Direct to user's device
+  }
+}
+
+package "Data Protection" {
+  component "Memory Management" as memory {
+    note right : Automatic cleanup
+  }
+  
+  component "Storage Encryption" as encryption {
+    note right : Browser-level encryption
+  }
+  
+  component "No Analytics" as analytics {
+    note right : No tracking or telemetry
+  }
+}
+
+package "User Control" {
+  component "Data Ownership" as ownership {
+    note right : User owns all data
+  }
+  
+  component "Deletion Control" as deletion {
+    note right : User can delete anytime
+  }
+  
+  component "Audit Trail" as audit {
+    note right : Processing log available
+  }
+}
+
+upload --> processing
+processing --> qr
+qr --> output
+processing --> memory
+memory --> encryption
+encryption --> ownership
+ownership --> deletion
+deletion --> audit
+
+note bottom
+  Zero-Knowledge Architecture:
+  • No data leaves user's device
+  • No server-side processing
+  • No external API calls
+  • No user tracking
+  • No telemetry collection
+end note
+@enduml
+----
+
+**Security Principles:**
+
+1. **Zero Server Dependency**: All processing happens client-side
+2. **No Data Transmission**: Documents never leave user's device
+3. **Memory Cleanup**: Sensitive data cleared after processing
+4. **User Control**: Complete data ownership and deletion rights
+5. **Minimal Permissions**: Only essential browser APIs used
+
+**Privacy Compliance:**
+
+[cols="1,2,2" options="header"]
+|===
+| Regulation | Compliance Method | Implementation
+
+| **GDPR** 
+| No personal data collection
+| No cookies, tracking, or analytics
+
+| **HIPAA** 
+| Local processing only
+| No PHI transmission or storage on servers
+
+| **Corporate Policies** 
+| Air-gapped operation
+| Can run completely offline
+
+| **Data Sovereignty** 
+| User's jurisdiction applies
+| Data never crosses borders
+
+| **Right to Deletion** 
+| Manual and automatic cleanup
+| Complete data removal capabilities
+|===
+
+=== 8.5 User Experience Patterns
+
+**Consistent Interaction Patterns:**
+
+[plantuml, ux-patterns, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "Visual Consistency" {
+  component "Color Coding" as colors {
+    note right
+      • Red: Blank pages
+      • Purple: QR split points
+      • Green: Normal pages
+    end note
+  }
+  
+  component "Single-click Actions" as clicks {
+    note right
+      • Page state cycling
+      • Split insertion
+      • No complex gestures
+    end note
+  }
+  
+  component "Progress Feedback" as progress {
+    note right
+      • Real-time updates
+      • Clear time estimates
+      • Cancellation options
+    end note
+  }
+}
+
+package "Multi-platform Support" {
+  component "Responsive Design" as responsive {
+    note right
+      • Touch and mouse support
+      • Scalable thumbnails
+      • Adaptive layouts
+    end note
+  }
+  
+  component "Accessibility" as a11y {
+    note right
+      • Keyboard navigation
+      • Screen reader support
+      • High contrast modes
+    end note
+  }
+}
+
+package "Error Prevention" {
+  component "Non-destructive" as nondestructive {
+    note right
+      • Preview before changes
+      • Undo capabilities
+      • Original preserved
+    end note
+  }
+  
+  component "Validation" as validation {
+    note right
+      • File format checking
+      • Size limit warnings
+      • Clear error messages
+    end note
+  }
+}
+
+colors --> clicks
+clicks --> progress
+responsive --> a11y
+nondestructive --> validation
+@enduml
+----
+
+**Usability Guidelines:**
+
+1. **Immediate Feedback**: All user actions provide instant visual response
+2. **Clear State**: Current processing state always visible
+3. **Reversible Actions**: Non-destructive workflow until final confirmation
+4. **Progressive Disclosure**: Advanced features available but not overwhelming
+5. **Error Prevention**: Validation and warnings before problematic actions
+
+=== 8.6 Performance Optimization
+
+**Multi-threaded Processing Architecture:**
+
+[plantuml, performance-concept, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "Main Thread" {
+  component "UI Controller" as ui
+  component "User Interactions" as interactions
+  component "Progress Display" as display
+}
+
+package "Web Worker 1" {
+  component "PDF Processing" as pdf
+  component "Page Rendering" as render
+}
+
+package "Web Worker 2" {
+  component "QR Detection" as qr
+  component "Image Analysis" as analysis
+}
+
+package "Web Worker 3" {
+  component "Thumbnail Generation" as thumbnails
+  component "Blank Detection" as blank
+}
+
+package "Storage Thread" {
+  component "IndexedDB Operations" as storage
+  component "Cleanup Tasks" as cleanup
+}
+
+ui --> pdf : "Process document"
+ui --> qr : "Detect QR codes"
+ui --> thumbnails : "Generate previews"
+
+pdf --> ui : "Progress updates"
+qr --> ui : "Detection results"
+thumbnails --> ui : "Thumbnail data"
+
+pdf --> storage : "Store results"
+qr --> storage : "Store analysis"
+thumbnails --> storage : "Cache thumbnails"
+
+note right of ui
+  Main thread handles:
+  • User interactions
+  • DOM updates
+  • Progress display
+  • State management
+end note
+
+note bottom of pdf
+  Worker coordination:
+  • Parallel processing
+  • Shared memory buffers
+  • Message passing
+  • Resource pooling
+end note
+@enduml
+----
+
+**Performance Optimization Strategies:**
+
+1. **Parallel Processing**: Multiple Web Workers for different tasks
+2. **Memory Management**: Efficient buffer reuse and cleanup
+3. **Progressive Loading**: Lazy loading of thumbnails and previews
+4. **Caching**: Intelligent caching of processed data
+5. **Compression**: Optimized thumbnail generation and storage
+
+**Resource Management:**
+
+[cols="1,2,2,2" options="header"]
+|===
+| Resource Type | Optimization | Monitoring | Cleanup
+
+| **Memory** 
+| Object pooling, buffer reuse
+| Memory usage tracking
+| Automatic garbage collection triggers
+
+| **Storage** 
+| Compressed thumbnails, efficient indexing
+| Quota monitoring
+| Age-based and manual cleanup
+
+| **CPU** 
+| Web Worker distribution, yielding
+| Processing time measurement
+| Adaptive quality settings
+
+| **Network** 
+| Service Worker caching, offline capability
+| Connection state monitoring
+| Graceful degradation
+|===
+
+=== 8.7 Testing Strategy
+
+**Multi-level Testing Approach:**
+
+1. **Unit Tests**: Individual component functionality
+2. **Integration Tests**: Component interaction and data flow
+3. **Performance Tests**: Memory usage and processing speed
+4. **Browser Tests**: Cross-browser compatibility
+5. **User Acceptance Tests**: Real-world workflow validation
+
+**Test Categories:**
+
+[cols="1,2,2,2" options="header"]
+|===
+| Test Type | Tools | Coverage | Automation
+
+| **Unit Tests** 
+| Jest, Testing Library
+| Core business logic, utilities
+| CI/CD pipeline
+
+| **Integration Tests** 
+| Playwright, Cypress
+| User workflows, component interaction
+| Nightly builds
+
+| **Performance Tests** 
+| Custom profiling, Lighthouse
+| Memory usage, processing speed
+| Weekly benchmarks
+
+| **Accessibility Tests** 
+| axe-core, WAVE
+| WCAG compliance
+| Pull request validation
+
+| **Browser Tests** 
+| BrowserStack, Sauce Labs
+| Cross-browser compatibility
+| Release validation
+|===
+
+=== 8.8 Documentation Standards
+
+**Living Documentation Approach:**
+
+1. **Architecture**: arc42 template maintained alongside code
+2. **API Documentation**: Generated from JSDoc comments
+3. **User Guide**: Embedded help within application
+4. **Development**: README-driven development approach
+5. **Deployment**: Step-by-step guides for each deployment type
+
+**Documentation Maintenance:**
+
+- **Version Control**: All documentation in Git alongside code
+- **Automated Generation**: API docs generated during build
+- **Regular Review**: Monthly documentation review and updates
+- **User Feedback**: Documentation improvements based on user questions
+- **Multi-format**: Documentation available in HTML, PDF, and embedded formats
+
+=== 8.9 Detailed User Interaction Patterns
+
+**Critical Interaction Definitions:**
+
+**"Click Between Pages" Implementation:**
+* **Desktop**: Hover area appears as 2px wide vertical line between thumbnails
+* **Mobile**: 20px touch target area with haptic feedback
+* **Visual Feedback**: Blue insertion line appears on hover/touch
+* **Action Result**: Purple-framed virtual QR page inserted with "QR Split" label
+
+**Document Renaming Interface:**
+* **Access Method**: Right-click thumbnail → "Rename Document" context menu
+* **Mobile**: Long-press thumbnail → context menu
+* **Default Names**: "Document_001", "Document_002" when no QR content available
+* **QR Content**: Automatic naming from QR text content when available
+* **UI**: Inline editing with save/cancel buttons
+
+**Settings Panel Access:**
+* **Desktop**: Settings gear icon in top-right corner
+* **Mobile**: Hamburger menu → Settings
+* **Keyboard**: Alt+S shortcut
+* **Modal**: Overlay dialog with Apply/Cancel/Reset options
+
+**Mobile-Specific Patterns:**
+* **Thumbnail Size**: Auto-adjusts to 120px on screens <768px wide
+* **Touch Targets**: Minimum 44px × 44px for all interactive elements
+* **Gestures**: Pinch-to-zoom for thumbnail grid
+* **State Cycling**: Single tap (not click) with 300ms visual feedback
+
+**Keyboard Navigation:**
+* **Tab Order**: Upload → Settings → Thumbnail Grid → Action Buttons
+* **Thumbnail Grid**: Arrow keys for navigation, Space for state cycling
+* **Insertion**: Tab to insertion points, Enter to create split
+* **Accessibility**: ARIA labels and live regions for screen readers
+
+**Drag-and-Drop Specifications:**
+* **Drop Zone**: Full window drop zone with dashed border on drag-over
+* **Multiple Files**: Only first PDF accepted, others ignored with notification
+* **Invalid Files**: Red border flash with error message
+* **Visual States**: Gray (inactive) → Blue (drag-over) → Green (valid) → Red (invalid)

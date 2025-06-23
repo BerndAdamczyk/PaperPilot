@@ -1,0 +1,473 @@
+== 7. Deployment View
+
+[role="arc42help"]
+****
+The deployment view describes:
+
+* the technical infrastructure used to execute your system, with infrastructure elements like geographical locations, environments, computers, processors, channels and net topologies as well as other infrastructure elements and
+* the mapping of (software) building blocks to that infrastructure elements.
+
+Often systems are executed in different environments, e.g. development environment, test environment, production environment. In such cases you should document all relevant environments.
+****
+
+=== 7.1 Infrastructure Overview
+
+**PaperPilot supports multiple deployment strategies to accommodate different user needs and technical requirements.**
+
+[plantuml, deployment-overview, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+cloud "Internet" {
+  node "GitHub Pages" as gh {
+    artifact "Demo Instance" as demo
+    artifact "Static Assets" as assets
+  }
+}
+
+node "User's Device" {
+  node "Modern Browser" as browser {
+    component "PaperPilot PWA" as pwa
+    database "IndexedDB" as idb
+    component "Service Worker" as sw
+  }
+  
+  node "Local Web Server" as local {
+    artifact "Self-hosted Instance" as selfhost
+  }
+  
+  node "Desktop App" as desktop {
+    artifact "Electron Wrapper" as electron
+    note right : Future extension
+  }
+}
+
+node "Power User Server" as server {
+  component "Nginx/Apache" as webserver
+  artifact "PaperPilot Files" as files
+}
+
+demo --> browser : HTTPS
+selfhost --> browser : HTTP/HTTPS
+webserver --> browser : HTTPS
+files --> webserver : Static Files
+
+pwa --> idb : Data Storage
+pwa --> sw : Offline Support
+
+note bottom of browser
+  Minimum Requirements:
+  • ES2020+ support
+  • IndexedDB available
+  • Canvas API support
+  • File API support
+  • 4GB+ RAM recommended
+end note
+@enduml
+----
+
+=== 7.2 Demo Deployment (GitHub Pages)
+
+**Target Users:** Evaluation, testing, demonstration
+**Infrastructure:** GitHub Pages static hosting
+
+[cols="1,3" options="header"]
+|===
+| Component | Configuration
+
+| **Hosting Platform** 
+| GitHub Pages with custom domain support
+
+| **SSL/TLS** 
+| Automatic HTTPS via GitHub/Let's Encrypt
+
+| **CDN** 
+| GitHub's global CDN for fast worldwide access
+
+| **Build Process** 
+| GitHub Actions for automated deployment from main branch
+
+| **Update Frequency** 
+| Automatic deployment on every commit to main
+
+| **Storage Limitations** 
+| No server-side storage - all data client-side only
+
+| **Performance** 
+| Optimized for fast loading, progressive enhancement
+|===
+
+**Deployment Architecture:**
+
+[plantuml, github-deployment, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+cloud "GitHub" {
+  package "Repository" {
+    folder "Source Code" as src
+    folder "Documentation" as docs
+    component "GitHub Actions" as actions
+  }
+  
+  package "GitHub Pages" {
+    artifact "Deployed App" as app
+    artifact "Static Assets" as assets
+    artifact "Service Worker" as sw
+  }
+}
+
+cloud "Internet Users" as users
+
+src --> actions : Push to main
+actions --> app : Build & Deploy
+actions --> assets : Optimize & Cache
+actions --> sw : Update SW version
+
+users --> app : HTTPS requests
+users --> assets : Cached resources
+
+note right of actions
+  Automated CI/CD:
+  • ESLint validation
+  • Asset optimization
+  • PWA manifest generation
+  • Service worker versioning
+end note
+@enduml
+----
+
+**Deployment Steps:**
+1. **Source Control**: Code pushed to GitHub main branch
+2. **CI Pipeline**: GitHub Actions runs build process
+3. **Asset Optimization**: JavaScript minification, asset compression
+4. **PWA Generation**: Manifest and service worker updated
+5. **Deployment**: Static files deployed to GitHub Pages
+6. **Cache Invalidation**: Service worker version updated for client updates
+
+=== 7.3 Self-hosted Deployment
+
+**Target Users:** Privacy-conscious users, corporate environments
+**Infrastructure:** User-controlled web server
+
+**Requirements:**
+
+[cols="1,2,2" options="header"]
+|===
+| Category | Minimum | Recommended
+
+| **Web Server** 
+| Any HTTP server (nginx, Apache, IIS)
+| nginx with HTTPS
+
+| **Storage** 
+| 50MB for application files
+| 100MB+ for logs and updates
+
+| **Network** 
+| HTTP/1.1 support
+| HTTP/2 with TLS 1.3
+
+| **Domain** 
+| IP address or localhost
+| Custom domain with SSL certificate
+
+| **Maintenance** 
+| Manual updates
+| Automated update scripts
+|===
+
+**Self-hosting Architecture:**
+
+[plantuml, selfhost-deployment, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+node "User's Infrastructure" {
+  node "Web Server" as webserver {
+    component "nginx/Apache" as http
+    folder "PaperPilot Files" as files {
+      artifact "index.html" as html
+      artifact "app.js" as js
+      artifact "styles.css" as css
+      artifact "service-worker.js" as sw
+      artifact "manifest.json" as manifest
+    }
+  }
+  
+  node "Client Devices" as clients {
+    component "Browser 1" as b1
+    component "Browser 2" as b2
+    component "Mobile Browser" as mobile
+  }
+  
+  database "Local Network" as network
+}
+
+http --> files : Serve static files
+files --> b1 : HTTPS/HTTP
+files --> b2 : HTTPS/HTTP
+files --> mobile : HTTPS/HTTP
+
+b1 --> network : Internal network only
+b2 --> network : Internal network only
+mobile --> network : WiFi connection
+
+note right of files
+  Single deployment serves
+  multiple users on local network
+end note
+
+note bottom of webserver
+  Configuration:
+  • Enable HTTPS (recommended)
+  • Set proper MIME types
+  • Configure service worker headers
+  • Enable gzip compression
+end note
+@enduml
+----
+
+**Installation Steps:**
+1. **Download**: Get latest release package from GitHub
+2. **Extract**: Unpack files to web server directory
+3. **Configure**: Set up web server (nginx/Apache configuration)
+4. **SSL Setup**: Install SSL certificate for HTTPS (recommended)
+5. **Access**: Navigate to server URL from any browser
+6. **Updates**: Manual download and replacement of files
+
+**Sample nginx Configuration:**
+```nginx
+server {
+    listen 443 ssl;
+    server_name paperpilot.local;
+    
+    ssl_certificate /path/to/certificate.crt;
+    ssl_certificate_key /path/to/private.key;
+    
+    root /var/www/paperpilot;
+    index index.html;
+    
+    # Enable gzip compression
+    gzip on;
+    gzip_types text/css application/javascript application/json;
+    
+    # Service Worker headers
+    location /service-worker.js {
+        add_header Cache-Control "no-cache";
+        add_header Service-Worker-Allowed "/";
+    }
+    
+    # PWA manifest
+    location /manifest.json {
+        add_header Content-Type "application/manifest+json";
+    }
+    
+    # Static assets with long cache
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+```
+
+=== 7.4 Desktop Application (Future)
+
+**Target Users:** Non-technical users, offline-first scenarios
+**Infrastructure:** Electron-based desktop application
+
+**Planned Architecture:**
+
+[plantuml, desktop-deployment, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "Desktop Application" {
+  component "Electron Main Process" as main {
+    component "Window Management" as window
+    component "File System Access" as fs
+    component "Auto-updater" as updater
+  }
+  
+  component "Electron Renderer" as renderer {
+    component "PaperPilot Web App" as webapp
+    component "Local Storage" as storage
+  }
+}
+
+cloud "GitHub Releases" as releases
+node "Operating System" as os {
+  folder "User Documents" as docs
+  folder "Application Data" as appdata
+}
+
+main --> renderer : IPC communication
+main --> os : Native OS integration
+main --> releases : Check for updates
+
+renderer --> webapp : Embed web application
+renderer --> storage : Enhanced storage APIs
+
+webapp --> fs : Direct file access
+webapp --> docs : Default save location
+storage --> appdata : Application preferences
+
+note right of main
+  Desktop Integration:
+  • Native file dialogs
+  • System notifications
+  • Auto-launch capability
+  • Offline-first design
+end note
+
+note bottom of releases
+  Distribution:
+  • Windows installer (.msi)
+  • macOS application (.dmg)
+  • Linux packages (.deb, .rpm)
+  • Auto-update mechanism
+end note
+@enduml
+----
+
+**Planned Features:**
+- **Native File Access**: Direct file system integration
+- **Enhanced Storage**: Larger storage limits than browser
+- **System Integration**: Native notifications and file associations
+- **Auto-updates**: Seamless application updates
+- **Offline-first**: Full functionality without internet
+
+=== 7.5 Browser Compatibility Matrix
+
+**Supported Browser Environments:**
+
+[cols="1,1,1,1,1" options="header"]
+|===
+| Browser | Minimum Version | PWA Support | Full Features | Notes
+
+| **Chrome** 
+| 88+ (2021)
+| ✅ Full
+| ✅ All features
+| Primary development target
+
+| **Firefox** 
+| 85+ (2021)
+| ✅ Full
+| ✅ All features
+| Excellent compatibility
+
+| **Safari** 
+| 14+ (2020)
+| ⚠️ Limited
+| ✅ Core features
+| PWA install limited on iOS
+
+| **Edge** 
+| 88+ (2021)
+| ✅ Full
+| ✅ All features
+| Chromium-based, excellent support
+
+| **Mobile Chrome** 
+| 88+
+| ✅ Full
+| ✅ Touch optimized
+| Best mobile experience
+
+| **Mobile Safari** 
+| 14+
+| ⚠️ Limited
+| ✅ Core features
+| iOS PWA restrictions apply
+
+| **Legacy Browsers** 
+| <2020
+| ❌ None
+| ⚠️ Degraded
+| Graceful degradation, limited functionality
+|===
+
+**Feature Detection and Fallbacks:**
+
+```javascript
+// Feature detection strategy
+const capabilities = {
+  fileAPI: 'FileReader' in window,
+  indexedDB: 'indexedDB' in window,
+  serviceWorker: 'serviceWorker' in navigator,
+  webWorkers: 'Worker' in window,
+  canvas: 'HTMLCanvasElement' in window
+};
+
+// Graceful degradation
+if (!capabilities.webWorkers) {
+  // Fall back to synchronous processing with warnings
+}
+if (!capabilities.indexedDB) {
+  // Use localStorage with size limitations
+}
+```
+
+=== 7.6 Performance and Scalability
+
+**Client-side Performance Characteristics:**
+
+[cols="1,2,2,2" options="header"]
+|===
+| Document Size | Processing Time | Memory Usage | Recommendations
+
+| **Small (1-50 pages)** 
+| 5-15 seconds
+| 100-300 MB
+| Optimal user experience
+
+| **Medium (51-200 pages)** 
+| 30-90 seconds
+| 300-800 MB
+| Good performance, progress indicators important
+
+| **Large (201-500 pages)** 
+| 2-5 minutes
+| 800-1500 MB
+| Chunked processing, crash recovery essential
+
+| **Very Large (500+ pages)** 
+| 5+ minutes
+| 1.5-2 GB
+| At browser limits, consider splitting input
+|===
+
+**Scaling Considerations:**
+- **Memory Management**: Progressive processing to stay within browser limits
+- **Storage Cleanup**: Automatic cleanup of old analysis data
+- **Background Processing**: Web Workers prevent UI blocking
+- **Crash Recovery**: Resumable operations for large documents
+- **User Feedback**: Clear progress indication and time estimates
+
+**Hardware Recommendations:**
+
+[cols="1,2,2" options="header"]
+|===
+| Usage Pattern | Minimum Hardware | Recommended Hardware
+
+| **Occasional Use** 
+| 4GB RAM, modern CPU
+| 8GB RAM, multi-core CPU
+
+| **Regular Use** 
+| 8GB RAM, modern CPU
+| 16GB RAM, fast SSD storage
+
+| **Heavy Use** 
+| 16GB RAM, multi-core CPU
+| 32GB RAM, dedicated graphics
+|===

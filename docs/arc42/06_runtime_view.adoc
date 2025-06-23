@@ -1,0 +1,369 @@
+== 6. Runtime View
+
+[role="arc42help"]
+****
+The runtime view describes concrete behavior and interactions of the system's building blocks in form of scenarios from the following areas:
+
+* important use cases or features: how do building blocks execute them?
+* interactions at critical external interfaces: how do building blocks cooperate with users and neighboring systems?
+* operation and administration: launch, start-up, stop
+* error and exception scenarios
+
+Remark: The main criterion for the choice of possible scenarios (sequences, workflows) is their *architectural relevance*. It is *not* important to describe a large number of scenarios. You should rather document a representative selection.
+****
+
+=== 6.1 PDF Upload and Analysis Workflow
+
+**Scenario:** User uploads a large PDF and initiates automatic analysis
+
+[plantuml, pdf-upload-analysis, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+actor User
+participant "UI Controller" as UI
+participant "File Manager" as FM
+participant "Document Processor" as DP
+participant "Storage Manager" as SM
+participant "PDF.js" as PDF
+participant "QR Detector" as QR
+participant "Blank Detector" as BD
+participant "Thumbnail Generator" as TG
+
+User -> UI : Upload PDF file
+UI -> FM : validateFile(file)
+FM -> FM : checkFileSize(< 2GB)
+FM -> PDF : loadDocument(file)
+PDF -> FM : documentPages[]
+
+FM -> SM : storeOriginalDocument(file)
+SM -> SM : generateFileHash()
+SM -> SM : checkExistingAnalysis()
+
+alt No existing analysis
+    FM -> DP : startAnalysis(document)
+    DP -> DP : initializeProgress()
+    
+    loop for each page
+        DP -> PDF : renderPageToCanvas(pageNum)
+        PDF -> DP : canvasImageData
+        
+        par QR Detection
+            DP -> QR : detectQRCodes(imageData)
+            QR -> DP : qrResults[]
+        and Blank Page Detection
+            DP -> BD : analyzeBlankness(imageData)
+            BD -> DP : blankScore
+        and Thumbnail Generation
+            DP -> TG : generateThumbnail(imageData)
+            TG -> DP : thumbnailData
+        end
+        
+        DP -> UI : updateProgress(pageNum, totalPages)
+        DP -> SM : savePageAnalysis(pageNum, results)
+    end
+    
+    DP -> SM : finalizeAnalysis(analysisData)
+else Existing analysis found
+    SM -> UI : loadExistingAnalysis()
+end
+
+UI -> User : displayThumbnailGrid(analysis)
+
+note right of SM
+  Analysis persisted in IndexedDB
+  for future sessions
+end note
+@enduml
+----
+
+**Key Interactions:**
+1. **File Validation**: Size check (2GB limit) and PDF format verification
+2. **Parallel Processing**: QR detection, blank page analysis, and thumbnail generation run concurrently
+3. **Progress Reporting**: Real-time updates every page for user feedback
+4. **Persistence**: Analysis results stored in IndexedDB with file hash as key
+5. **Resume Capability**: Existing analysis loaded if PDF previously processed
+
+=== 6.2 Manual Page State Management
+
+**Scenario:** User manually adjusts page states and inserts QR split points
+
+[plantuml, manual-state-management, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+actor User
+participant "UI Controller" as UI
+participant "Page State Manager" as PSM
+participant "Storage Manager" as SM
+participant "Thumbnail Grid" as TG
+
+User -> UI : clickThumbnail(pageId)
+UI -> PSM : cyclePage State(pageId)
+
+PSM -> PSM : getCurrentState(pageId)
+alt currentState == Normal
+    PSM -> PSM : setState(pageId, Blank)
+    PSM -> TG : updateFrameColor(pageId, red)
+else currentState == Blank
+    PSM -> PSM : setState(pageId, QR)
+    PSM -> TG : updateFrameColor(pageId, purple)
+else currentState == QR
+    PSM -> PSM : setState(pageId, Normal)
+    PSM -> TG : updateFrameColor(pageId, green)
+end
+
+PSM -> SM : persistPageState(pageId, newState)
+PSM -> UI : notifyStateChange(pageId, newState)
+
+== Manual Split Insertion ==
+
+User -> UI : clickBetweenPages(afterPageId)
+UI -> PSM : insertVirtualQRSplit(afterPageId)
+
+PSM -> PSM : generateVirtualPageId()
+PSM -> PSM : createVirtualQRPage(virtualPageId)
+PSM -> TG : insertThumbnail(virtualPageId, purpleFrame)
+PSM -> TG : addSplitMarker("QR Split")
+
+PSM -> SM : persistVirtualSplit(afterPageId, virtualPageId)
+PSM -> UI : updateDocumentStructure()
+
+note right of PSM
+  Virtual splits treated identically
+  to detected QR codes in processing
+end note
+@enduml
+----
+
+**Key Interactions:**
+1. **State Cycling**: Single-click cycles through Normal → Blank → QR → Normal
+2. **Visual Feedback**: Immediate frame color update (green/red/purple)
+3. **Virtual Page Creation**: Manual splits create new virtual pages with QR state
+4. **Persistence**: All state changes immediately saved to IndexedDB
+5. **Consistency**: Virtual and detected QR splits treated uniformly
+
+=== 6.3 Progressive PDF Generation with Crash Recovery
+
+**Scenario:** User generates output PDFs with interruption and recovery
+
+[plantuml, pdf-generation-recovery, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+actor User
+participant "UI Controller" as UI
+participant "Output Generator" as OG
+participant "Document Processor" as DP
+participant "Storage Manager" as SM
+participant "PDF.js" as PDF
+participant "File Manager" as FM
+
+User -> UI : startPDFGeneration()
+UI -> OG : generateOutputPDFs(analysisData)
+
+OG -> OG : planDocumentSplits(qrPositions)
+OG -> SM : initializeGenerationState()
+
+loop for each output document
+    OG -> DP : startDocumentGeneration(docId)
+    OG -> PDF : createNewPDF()
+    
+    loop for each page in document
+        alt page.state != Blank
+            DP -> PDF : addPageToDocument(pageData)
+            DP -> SM : markPageCompleted(docId, pageNum)
+            DP -> UI : updateProgress(docId, pageNum)
+        else page.state == Blank
+            DP -> DP : skipBlankPage(pageNum)
+        end
+    end
+    
+    DP -> PDF : finalizePDF()
+    PDF -> FM : savePDFToFile(outputPath)
+    FM -> SM : markDocumentCompleted(docId)
+    
+    alt Browser crash occurs
+        note over OG : Process interrupted
+    end
+end
+
+== Recovery Process ==
+
+User -> UI : reopenApplication()
+UI -> SM : checkIncompleteGeneration()
+
+alt Incomplete generation found
+    SM -> OG : loadGenerationState()
+    OG -> UI : showRecoveryDialog()
+    User -> UI : resumeGeneration()
+    
+    OG -> OG : identifyLastCompletedDocument()
+    OG -> OG : resumeFromDocument(lastCompleted + 1)
+    
+    note right of OG
+      Resume from exact point of interruption,
+      completed documents are not regenerated
+    end note
+else No incomplete generation
+    UI -> User : normalStartup()
+end
+
+@enduml
+----
+
+**Key Interactions:**
+1. **Document Planning**: Split points determined from QR positions (detected + manual)
+2. **Progressive Generation**: One document at a time, page-by-page within each
+3. **State Persistence**: Completion status saved after each page/document
+4. **Crash Detection**: Incomplete generation state detected on startup
+5. **Smart Recovery**: Resume from last completed document, skip regeneration
+
+=== 6.4 Error Handling and Edge Cases
+
+**Scenario:** System handles various error conditions gracefully
+
+[plantuml, error-handling, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+participant "UI Controller" as UI
+participant "Document Processor" as DP
+participant "Error Handler" as EH
+participant "Storage Manager" as SM
+participant "User" as User
+
+== PDF Loading Error ==
+UI -> DP : loadPDF(corruptedFile)
+DP -> DP : attemptPDFParsing()
+DP -> EH : reportError(CORRUPTED_PDF)
+
+EH -> EH : categorizeError(severity=HIGH)
+EH -> UI : displayErrorDialog("PDF cannot be read")
+EH -> UI : suggestSolutions(["Try different file", "Check file integrity"])
+
+== Memory Overflow During Processing ==
+DP -> DP : processLargeDocument(2.1GB)
+DP -> EH : reportError(MEMORY_LIMIT_EXCEEDED)
+
+EH -> UI : showWarningDialog("Document too large")
+EH -> UI : offerAlternatives(["Process in chunks", "Reduce quality"])
+User -> UI : selectChunkedProcessing()
+
+== QR Detection Failure ==
+DP -> DP : analyzeDocument(noQRCodes)
+DP -> EH : reportWarning(NO_QR_DETECTED)
+
+EH -> UI : showInfoDialog("No QR codes found")
+EH -> UI : suggestManualSplitting()
+User -> UI : proceedWithManualSplits()
+
+== Storage Quota Exceeded ==
+SM -> SM : saveAnalysisData(largeFile)
+SM -> EH : reportError(STORAGE_QUOTA_EXCEEDED)
+
+EH -> UI : showCleanupDialog("Storage full")
+EH -> SM : triggerAutomaticCleanup(olderThan=7days)
+EH -> UI : reportCleanupResults()
+
+== Network Offline (PWA) ==
+UI -> UI : detectOfflineStatus()
+UI -> EH : reportInfo(OFFLINE_MODE)
+
+EH -> UI : showOfflineBanner("Working offline")
+EH -> UI : disableCloudFeatures()
+EH -> UI : enableOfflineCapabilities()
+
+note right of EH
+  Comprehensive error categorization:
+  • CRITICAL: App cannot continue
+  • HIGH: Feature unavailable
+  • MEDIUM: Degraded experience
+  • LOW: Informational only
+end note
+@enduml
+----
+
+**Error Categories and Responses:**
+1. **Critical Errors**: PDF corruption, memory overflow - block processing with clear alternatives
+2. **Processing Warnings**: No QR codes, all blank pages - inform user with manual options
+3. **Storage Issues**: Quota exceeded - automatic cleanup with user notification
+4. **Network Issues**: Offline mode - graceful degradation with offline capabilities
+5. **Recovery**: All errors logged for debugging, user actions preserved where possible
+
+=== 6.5 PWA Installation and Service Worker
+
+**Scenario:** User installs PaperPilot as PWA and works offline
+
+[plantuml, pwa-lifecycle, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+actor User
+participant "Browser" as Browser
+participant "PaperPilot App" as App
+participant "Service Worker" as SW
+participant "Cache Storage" as Cache
+participant "IndexedDB" as IDB
+
+== PWA Installation ==
+User -> Browser : visitPaperPilotURL()
+Browser -> App : loadApplication()
+App -> SW : registerServiceWorker()
+
+SW -> Cache : cacheApplicationAssets()
+SW -> Browser : showInstallPrompt()
+User -> Browser : clickInstall()
+Browser -> Browser : addToHomeScreen()
+
+== Offline Usage ==
+User -> App : openPWA(offline)
+App -> SW : interceptRequest(app.js)
+
+alt Resource in cache
+    SW -> Cache : retrieveCachedResource()
+    Cache -> App : serveFromCache()
+else Resource not cached
+    SW -> App : serveFallbackPage()
+end
+
+User -> App : uploadPDF(localFile)
+App -> IDB : storeDocument(temporary)
+App -> App : processOffline()
+App -> IDB : saveAnalysisResults()
+
+== Return Online ==
+Browser -> SW : detectOnlineStatus()
+SW -> App : notifyOnlineStatus()
+App -> User : showOnlineBanner()
+
+User -> App : syncData()
+App -> IDB : retrievePendingOperations()
+App -> App : processPendingTasks()
+
+note right of SW
+  Service Worker handles:
+  • Asset caching for offline use
+  • Request interception
+  • Background sync preparation
+  • Update notifications
+end note
+@enduml
+----
+
+**PWA Capabilities:**
+1. **Installation**: Standard PWA install prompt and home screen addition
+2. **Offline Processing**: Full functionality available without network
+3. **Caching Strategy**: Application assets cached, documents stored locally
+4. **Sync Preparation**: Pending operations queued for when online
+5. **Update Handling**: Service worker manages app updates transparently

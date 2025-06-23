@@ -1,0 +1,200 @@
+== 5. Building Block View
+
+[role="arc42help"]
+****
+The building block view shows the static decomposition of the system into building blocks (modules, components, subsystems).
+****
+
+=== 5.1 Whitebox Overall System
+
+**System Overview:**
+
+[plantuml, system-overview, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "PaperPilot Web Application" {
+  [UI Controller] as ui
+  [Document Processor] as processor
+  [File Manager] as filemanager
+  [QR Code Detector] as qr
+  [Blank Page Detector] as blank
+  [Preview Generator] as preview
+  [Settings Manager] as settings
+}
+
+[Browser APIs] as apis
+[Local Storage] as storage
+
+ui --> processor : "processing requests"
+ui --> settings : "configuration"
+processor --> qr : "QR detection"
+processor --> blank : "blank page detection"  
+processor --> preview : "preview generation"
+processor --> filemanager : "file operations"
+filemanager --> apis : "file I/O"
+settings --> storage : "persistence"
+
+note right of processor
+  Orchestrates all processing
+  operations and error handling
+end note
+@enduml
+----
+
+**Contained Building Blocks:**
+
+[cols="1,3" options="header"]
+|===
+| Component | Responsibility
+
+| **UI Controller** 
+| Manages multi-platform user interface, handles touch/mouse interactions, thumbnail grid, single-click cycling
+
+| **Document Processor** 
+| Core orchestration of PDF analysis and progressive output generation with crash recovery
+
+| **Storage Manager** 
+| IndexedDB-based persistent storage for analysis JSON, configurable cleanup, orphan detection
+
+| **Thumbnail Generator** 
+| Progressive JPEG thumbnail creation with configurable sizes, color-coded frame overlays
+
+| **Page State Manager** 
+| Tracks page states (Normal/Blank/QR), handles single-click state cycling, creates virtual QR split pages with purple state
+
+| **QR Code Detector** 
+| Detects standard "split_here" QR markers, extracts positioning, treats manual and detected QR splits uniformly
+
+| **Blank Page Detector** 
+| Analyzes pages for content density, configurable threshold, integrates with manual overrides
+|===
+
+**Important Interfaces:**
+
+* **Processing Pipeline Interface**: Standardized interface for all processing modules
+* **PDF Processing Interface**: Abstraction layer for PDF parsing and manipulation
+* **Progress Reporting Interface**: Real-time progress updates to UI components
+
+=== 5.2 Whitebox Document Processor
+
+[role="arc42help"]
+****
+The document processor is the core component that orchestrates the entire processing workflow.
+****
+
+[plantuml, document-processor, svg]  
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+package "Document Processor" {
+  [Pipeline Controller] as controller
+  [Page Analyzer] as analyzer
+  [Document Splitter] as splitter
+  [Metadata Extractor] as metadata
+  [Output Generator] as output
+  [Error Handler] as error
+}
+
+[QR Code Detector] as qr
+[Blank Page Detector] as blank
+[Preview Generator] as preview
+
+controller --> analyzer : "page analysis requests"
+analyzer --> qr : "QR detection"
+analyzer --> blank : "blank page detection"
+controller --> splitter : "document splitting"
+controller --> metadata : "metadata extraction"
+controller --> output : "output generation"
+controller --> error : "error handling"
+splitter --> preview : "preview generation"
+
+note right of controller
+  • Manages processing workflow
+  • Handles errors and recovery
+  • Tracks progress and state  
+  • Coordinates asynchronous operations
+end note
+@enduml
+----
+
+**Internal Components:**
+
+[cols="1,3" options="header"]
+|===
+| Component | Responsibility
+
+| **Pipeline Controller** 
+| Orchestrates processing workflow, manages state transitions, handles errors and recovery
+
+| **Page Analyzer** 
+| Coordinates analysis of individual pages using detection modules, aggregates results  
+
+| **Document Splitter** 
+| Splits documents based on detected markers (QR codes, blank pages), maintains document structure
+
+| **Metadata Extractor** 
+| Extracts and processes document metadata, QR code content, and file properties
+
+| **Output Generator** 
+| Prepares final output files with proper naming, structure, and format conversion
+
+| **Error Handler** 
+| Centralized error handling, logging, recovery strategies, user notification
+|===
+
+=== 5.3 Whitebox UI Controller
+
+**User Interface Architecture:**
+
+[plantuml, ui-controller, svg]
+----
+@startuml  
+!theme amiga
+skinparam defaultFontName Arial
+
+package "UI Controller" {
+  [Main Application] as main
+  [Upload Component] as upload
+  [Configuration Panel] as config
+  [Preview Area] as preview_ui
+  [Progress Tracker] as progress
+  [Results Panel] as results
+  [Settings Dialog] as settings_ui
+}
+
+[Event System] as events
+[State Manager] as state
+
+main --> upload : "file upload handling"
+main --> config : "processing configuration"
+main --> preview_ui : "preview display"
+main --> progress : "progress updates"
+main --> results : "results presentation"
+main --> settings_ui : "settings management"
+
+upload --> events : "file events"
+config --> events : "configuration events"
+preview_ui --> events : "user interactions"
+events --> state : "state updates"
+
+note right of events
+  Decoupled communication
+  between UI components
+end note
+@enduml
+----
+
+**UI Components:**
+
+* **Thumbnail Grid Component**: Scrollable grid with progressive JPEG thumbnails, configurable size, color-coded frames (red=blank, purple=QR, green=normal)
+* **Single-click State Cycling**: Click thumbnail to cycle through page states (Normal → Blank → QR → Normal)
+* **Manual Split Insertion**: Click between thumbnails to create new virtual QR split page with purple frame (consistent with detected QR codes)
+* **Progress Tracker**: Document-level progress indication with page counters and resumable state
+* **Configuration Panel**: Blank page threshold adjustment, thumbnail size settings, cleanup options
+* **Output Manager**: PDF generation controls with partial output storage and crash recovery
+* **Storage Dashboard**: Analysis data management, cleanup controls, storage usage display

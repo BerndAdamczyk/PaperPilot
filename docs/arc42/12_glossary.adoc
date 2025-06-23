@@ -1,0 +1,93 @@
+== 12. Glossary
+
+[role="arc42help"]
+****
+The most important domain and technical terms that your stakeholders use when discussing the system.
+****
+
+=== 12.1 Business Domain Terms
+
+**Batch Processing**::
+Processing multiple documents or operations as a group rather than individually, improving efficiency for high-volume workflows.
+
+**Blank Page Detection**::
+Algorithm that identifies pages with no or minimal content, typically used to remove empty pages from scanned documents to reduce file size and improve organization.
+
+**Document Digitization**::
+Process of converting physical documents into digital format through scanning and processing, often including OCR, metadata extraction, and format conversion.
+
+**Document Splitting**::
+Process of dividing a single document into multiple separate documents based on specific criteria such as QR codes, blank pages, or content markers.
+
+**High-volume Documents**::
+Large collections of documents that require efficient processing methods due to their quantity, typically requiring batch processing and automation.
+
+**Non-destructive Preview**::
+Preview mode that allows users to review and modify operations without permanently altering the original document until explicitly confirmed.
+
+**QR Code (Quick Response Code)**::
+Two-dimensional barcode that can store information (text, URLs, metadata) and be read by cameras or scanners, used as document markers in PaperPilot.
+
+=== 12.2 Technical Terms
+
+**Canvas API**::
+HTML5 API that provides a drawing surface for graphics, used for image manipulation, rendering, and pixel-level operations in browsers.
+
+**Client-side Processing**::
+Computing operations performed on the user's device (browser) rather than on a remote server, ensuring data privacy and reducing server dependencies.
+
+**IndexedDB**::
+Browser-based database API for storing large amounts of structured data locally, used for temporary storage of documents during processing.
+
+**PDF.js**::
+Mozilla's JavaScript library for parsing and rendering PDF documents in web browsers without plugins, enabling client-side PDF manipulation.
+
+**Progressive Web App (PWA)**::
+Web application that uses modern web capabilities to provide native app-like experience, including offline functionality and installation options.
+
+**Single Page Application (SPA)**::
+Web application that dynamically updates content without requiring full page reloads, providing smoother user experience.
+
+**Web Workers**::
+JavaScript API that allows running scripts in background threads, preventing blocking of the main user interface during intensive operations.
+
+=== 12.3 Abbreviations
+
+[cols="1,3" options="header"]
+|===
+| Abbreviation | Full Term
+
+| **ADR** | Architecture Decision Record
+| **API** | Application Programming Interface  
+| **CSS** | Cascading Style Sheets
+| **DOM** | Document Object Model
+| **ES2020+** | ECMAScript 2020 and later versions
+| **HTML5** | HyperText Markup Language version 5
+| **HTTP** | HyperText Transfer Protocol
+| **JSON** | JavaScript Object Notation
+| **OCR** | Optical Character Recognition
+| **PDF** | Portable Document Format
+| **PWA** | Progressive Web App
+| **QR** | Quick Response
+| **SPA** | Single Page Application
+| **UI** | User Interface
+| **UX** | User Experience
+| **WCAG** | Web Content Accessibility Guidelines
+|===
+
+=== 12.4 System-Specific Terms
+
+**Document Processor**::
+Core PaperPilot component that orchestrates the entire document processing workflow, including analysis, splitting, and output generation.
+
+**Pipeline Controller**::
+Central component that manages the sequence of processing steps, handles errors, and coordinates between different processing modules.
+
+**Processing Module**::
+Individual component responsible for a specific processing task (QR detection, blank page detection, etc.), following standardized interfaces.
+
+**Upload Component**::
+UI component that handles file upload through drag-and-drop interface, including file validation and user feedback.
+
+**Workflow State**::
+Current status of document processing, including progress information, errors, and user decisions, maintained throughout the processing session.

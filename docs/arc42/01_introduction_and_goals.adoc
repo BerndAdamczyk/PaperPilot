@@ -1,0 +1,167 @@
+== 1. Introduction and Goals
+
+[role="arc42help"]
+****
+Describes the relevant requirements and the driving forces that software architects and development team must consider. 
+These include underlying business goals, essential features, and quality goals for the architecture.
+****
+
+=== 1.1 Requirements Overview
+
+==== What is PaperPilot?
+
+A smart, browser-based assistant for guided verification and automatic splitting of scanned high-volume documents using QR code markers. PaperPilot streamlines the digitization of large paper stacks by providing a complete workflow from preparation to final PDF generation.
+
+**Core Problem:** 
+* Manual separation of high-volume document stacks is time-consuming and error-prone
+* No easy way to systematically organize and split large scanned batches
+* Risk of document loss or misplacement during manual processing
+* Lack of verification steps before permanent changes
+
+**Solution Approach:** 
+QR code-based document marking system with non-destructive preview and batch processing capabilities.
+
+==== Complete Workflow
+
+**1. Preparation Phase:**
+* Download printable "split_here" QR code markers from PaperPilot
+* Print and insert QR codes into paper document stack to define document boundaries
+* Scan the entire stack as a single PDF file
+
+**2. Analysis Phase:**
+* Upload scanned PDF to PaperPilot web interface
+* Automatic analysis detects:
+  - QR code positions for document splitting points
+  - Blank or nearly blank pages for removal
+* PDF Preview Grid displays analysis results with colored frame markers
+* All analysis data saved persistently in JSON format (non-destructive)
+
+**3. Verification Phase:**
+* Visual verification in thumbnail grid with color-coded frames (red=blank, purple=QR, green=normal)
+* Manual adjustment: Single-click pages to cycle through states (Normal → Blank → QR → Normal)
+* Insert additional splits: Click between pages to create virtual QR split pages with purple frames
+* Rename individual documents based on QR code content or manual input  
+* Adjust detection parameters and re-analyze if needed
+* Multiple iterations possible without modifying original PDF
+
+**4. Generation Phase:**
+* Apply verified changes to generate separate PDF files
+* Remove detected blank pages from output
+* Split at QR code positions (both detected and manually inserted) into individual documents
+* Export to specified file system location with progressive generation and crash recovery
+
+**5. Future Extensions:**
+* Email distribution of generated documents
+* Paperless-ngx API integration for automatic archiving
+* Batch metadata extraction and tagging
+
+==== Key Innovation
+
+**Unified QR Split System:** Both detected and manually inserted splits are represented as consistent purple-framed pages in the thumbnail grid, maintaining visual consistency and intuitive single-click interaction patterns.
+
+=== Essential Features (MVP)
+
+**QR Code Marker System:**
+* Downloadable "split_here" QR code templates for printing
+* QR code detection and positioning within scanned documents
+* Content extraction from QR codes for document naming
+* Reliable splitting markers for high-volume processing
+
+**Document Analysis Engine:**
+* Automatic blank page detection with configurable sensitivity
+* QR code position identification and validation
+* PDF Preview Grid with visual markers (colored frames)
+* Persistent analysis state in JSON format (non-destructive)
+
+**Interactive Verification Interface:**
+* Scrollable thumbnail grid with color-coded frames (red=blank, purple=QR, green=normal)
+* Single-click state cycling: Normal → Blank → QR → Normal
+* Manual split insertion: Click between pages to create virtual QR split pages
+* Document renaming capabilities based on QR content
+* Parameter adjustment and re-analysis functionality
+* Real-time preview of split points and blank page removal
+
+**PDF Processing Pipeline:**
+* Non-destructive workflow until user confirmation
+* Progressive PDF generation with crash recovery (page-by-page)
+* Document splitting at QR positions (both detected and manually inserted)
+* Blank page removal from output
+* Configurable output file naming and directory structure
+
+**Future Integration Capabilities:**
+* Email distribution system for generated documents
+* Paperless-ngx API integration for automated archiving
+* Metadata extraction and tagging system
+* Batch processing automation
+
+=== 1.2 Quality Goals
+
+[role="arc42help"]
+****
+The top three quality goals for the architecture whose fulfillment is of highest importance to the key stakeholders.
+****
+
+[cols="1,2,3" options="header"]
+|===
+| Priority | Quality Goal | Motivation and Scenarios
+
+| 1 
+| **Reliability** 
+| Documents are processed accurately without data loss or corruption. Critical for business document workflows where errors are costly.
+
+| 2 
+| **Usability** 
+| Intuitive browser-based interface accessible to non-technical users. Reduces training time and adoption barriers.
+
+| 3 
+| **Performance** 
+| Efficient processing of high-volume document batches. Users need responsive feedback during processing of large documents.
+
+| 4 
+| **Security** 
+| Secure, client-side processing ensures document privacy. No document data leaves user's device or browser.
+
+| 5 
+| **Cross-platform Compatibility** 
+| Works consistently across different operating systems and browsers without installation requirements.
+|===
+
+=== 1.3 Stakeholders
+
+[role="arc42help"]
+****
+Overview of all stakeholders of the system – anyone who should know the architecture or is involved in development.
+****
+
+[cols="1,2,3" options="header"]
+|===
+| Role | Contact/Organization | Expectations and Interests
+
+| **Administrative Staff** 
+| Offices, legal firms, medical practices
+| Efficient processing of high-volume document batches with QR marker system for reliable organization
+
+| **Document Archivists** 
+| Libraries, corporate archives, government offices
+| Systematic digitization workflow with verification steps and future integration with archival systems (Paperless-ngx)
+
+| **Legal Professionals** 
+| Law firms, court systems, compliance teams
+| Reliable document separation with audit trail and non-destructive preview for sensitive document handling
+
+| **Medical Offices** 
+| Clinics, hospitals, insurance companies
+| HIPAA-compliant local processing with batch organization of patient records and forms
+
+| **Small Business Owners** 
+| Accounting firms, consultancies, service providers
+| Cost-effective digitization solution without server infrastructure for invoices, contracts, and correspondence
+
+| **IT Administrators** 
+| Corporate IT departments
+| Browser-based deployment requiring minimal infrastructure, with future API integration capabilities
+
+| **Open Source Community** 
+| Developers, contributors
+| Clean, well-documented codebase for contributions and customization, especially for workflow integrations
+|===

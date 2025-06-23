@@ -1,0 +1,186 @@
+== 3. System Scope and Context
+
+[role="arc42help"]
+****
+System scope and context defines the boundaries and interfaces of your system. It shows what is inside and what is outside the system.
+****
+
+=== 3.1 Business Context
+
+[role="arc42help"]
+****
+The business context shows the system's environment from a business/domain perspective, showing what the system does and who uses it.
+****
+
+**PaperPilot** operates as a standalone web application for document digitization workflows.
+
+[plantuml, business-context, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+actor "Office Worker" as worker
+actor "Archivist" as archivist  
+actor "Administrator" as admin
+
+rectangle "PaperPilot\nWeb Application" as paperpilot {
+  usecase "Upload Documents" as upload
+  usecase "Process Documents" as process
+  usecase "Verify Results" as verify
+  usecase "Download Results" as download
+}
+
+rectangle "Local File System" as filesystem
+rectangle "Scanner/Source" as scanner
+
+worker --> upload
+archivist --> upload
+admin --> upload
+
+upload --> process
+process --> verify
+verify --> download
+
+paperpilot --> filesystem : "Read/Write files"
+scanner --> worker : "Provides scanned documents"
+scanner --> archivist : "Provides scanned documents"
+
+note right of paperpilot
+  • QR code detection
+  • Blank page removal
+  • Document splitting
+  • Preview generation
+  • Batch processing
+end note
+@enduml
+----
+
+**Business Interfaces:**
+
+[cols="1,3,2" options="header"]
+|===
+| Partner | Interaction | Interface
+
+| **End Users** 
+| Upload documents, configure processing, verify results, download processed files
+| Web browser interface
+
+| **Local File System** 
+| Source of input documents and destination for processed output
+| Browser File API
+
+| **Document Sources** 
+| Scanners, existing digital files, document management systems
+| PDF format only
+|===
+
+=== 3.2 Technical Context
+
+[role="arc42help"]
+****
+The technical context shows the system's technical environment, including hardware and software interfaces.
+****
+
+**Technical Environment:**
+
+[plantuml, technical-context, svg]
+----
+@startuml
+!theme amiga
+skinparam defaultFontName Arial
+
+node "User's Browser" {
+  component "PaperPilot App" as app
+  component "PDF.js" as pdfjs
+  component "QR Detection" as qr
+  component "Canvas API" as canvas
+  component "File API" as fileapi
+  component "IndexedDB" as idb
+}
+
+cloud "No External\nDependencies" as cloud
+
+database "Local Storage" as storage
+file "Input Documents" as input
+file "Output Documents" as output
+
+app --> pdfjs : "PDF processing"
+app --> qr : "QR code detection"
+app --> canvas : "Image processing"
+app --> fileapi : "File I/O"
+app --> idb : "Temp storage"
+app --> storage : "Settings"
+
+fileapi --> input : "Read files"
+fileapi --> output : "Write files"
+
+note right of cloud
+  All processing happens
+  locally in the browser
+end note
+@enduml
+----
+
+=== 3.3 External Interfaces
+
+[role="arc42help"]
+****
+Detailed specification of external interfaces – what data flows in which direction.
+****
+
+==== Browser APIs
+
+[cols="1,2,2,2" options="header"]
+|===
+| API | Purpose | Input | Output
+
+| **File API** 
+| Reading uploaded documents
+| File objects from user selection
+| ArrayBuffer/Blob data
+
+| **Canvas API** 
+| Image processing and rendering
+| Image data, processing parameters
+| Processed image data, thumbnails
+
+| **IndexedDB** 
+| Temporary storage for large documents
+| Document data, processing state
+| Persistent browser storage
+
+| **Web Workers** 
+| Background processing
+| Processing tasks, document data
+| Processed results, progress updates
+
+| **Download API** 
+| Saving processed documents
+| Processed document data
+| File downloads to user's system
+|===
+
+==== File Format Support
+
+**Input Formats:**
+* PDF documents (only supported format)
+
+**Output Formats:**
+* PDF documents (split and processed)
+* JSON metadata exports (analysis data)
+
+==== Third-party Libraries
+
+[cols="1,2,2" options="header"]
+|===
+| Library | Purpose | Interface
+
+| **PDF.js** 
+| PDF parsing and manipulation
+| JavaScript API for PDF operations
+
+| **jsQR** (or similar) 
+| QR code detection in PDF page images
+| Canvas image data input, QR content output
+|===
